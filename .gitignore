@@ -1,0 +1,4 @@
+config.py
+cookies.pkl
+*.log
+__pycache__/*
