@@ -20,10 +20,10 @@ PACKAGES_PAGE = "V2/Tenant/Deliveries/Deliveries.aspx"
 PACKAGES_TABLE_ID = "ctl00_ContentPlaceHolder1_GridDeliveries_ctl00"
 MORNING = datetime.time(hour=8)
 
-def load_page(driver, page):
+def load_page(driver, page, cfg):
     try:
         driver.get(page)
-        for e in [("UserName", config.USERNAME), ("Password", config.PASSWORD)]:
+        for e in [("UserName", cfg['username']), ("Password", cfg['password'])]:
             box = driver.find_element_by_id(e[0])
             box.clear()
             box.send_keys(e[1])
@@ -60,14 +60,7 @@ def on_disconnect(client, userdata, rc):
 def main():
     logging.basicConfig(level=logging.INFO)
 
-    cfg = {
-        "broker": {
-            "host": "prometheus"
-        },
-        "client_id": "buildinglink-retriever",
-        "discovery_prefix": "homeassistant",
-        "refresh_interval": 60
-    }
+    cfg = config.CONFIG
 
     client = mqtt.Client(client_id=cfg["client_id"])
     client.on_connect = lambda c, u, f, rc: on_connect(c, u, f, rc, cfg)
@@ -82,22 +75,8 @@ def main():
         driver.implicitly_wait(10)
         driver.get(BASE_URL)
 
-        try:
-            with open("cookies.pkl", "rb") as cookie_file:
-                logging.info("Loading cookies.")
-                cookies = pickle.load(cookie_file)
-                for cookie in cookies:
-                    driver.add_cookie(cookie)
-                driver.refresh()
-        except IOError as e:
-            logging.info("No cookie file available.")
-
-        logging.info("Saving cookies.")
-        cookies = driver.get_cookies()
-        pickle.dump(driver.get_cookies() , open("cookies.pkl","wb"))
-
         url = f"{BASE_URL}/{PACKAGES_PAGE}"
-        load_page(driver, url)
+        load_page(driver, url, cfg)
 
         packages = -1
 
@@ -105,13 +84,17 @@ def main():
             now = datetime.datetime.now()
 
             if MORNING < now.time():
+                logging.info(f"{str(now)}")
                 driver.refresh()
                 trs = driver.find_elements_by_xpath(f"//table[@id='{PACKAGES_TABLE_ID}']/tbody/tr")
                 temp = len(trs)
 
                 if temp == 1:
                     if "rgNoRecords" in trs[0].get_attribute("class"):
+                        logging.info(f"rgNoRecords found; 0 packages")
                         temp = 0
+
+                logging.info(f"{str(temp)} package(s)")
 
                 if packages != temp:
                     packages = temp
