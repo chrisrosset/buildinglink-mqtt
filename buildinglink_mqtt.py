@@ -38,7 +38,7 @@ def mqtt_base_topic(cfg):
     return f"{cfg['discovery_prefix']}/sensor/buildinglink"
 
 def publish_mqtt(client, data, cfg):
-    client.publish(f"{mqtt_base_topic(cfg)}/state", json.dumps(data))
+    client.publish(f"{mqtt_base_topic(cfg)}/state", json.dumps(data), retain=True)
 
 def on_connect(client, userdata, flags, rc, cfg):
     logging.info("Connected to the MQTT broker. rc=" + str(rc))
