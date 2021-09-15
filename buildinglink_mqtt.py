@@ -18,7 +18,6 @@ import config
 BASE_URL = "https://www.buildinglink.com/"
 PACKAGES_PAGE = "V2/Tenant/Deliveries/Deliveries.aspx"
 PACKAGES_TABLE_ID = "ctl00_ContentPlaceHolder1_GridDeliveries_ctl00"
-MORNING = datetime.time(hour=8)
 
 def load_page(driver, page, cfg):
     try:
@@ -83,23 +82,22 @@ def main():
         while True:
             now = datetime.datetime.now()
 
-            if MORNING < now.time():
-                logging.info(f"{str(now)}")
-                driver.refresh()
-                trs = driver.find_elements_by_xpath(f"//table[@id='{PACKAGES_TABLE_ID}']/tbody/tr")
-                temp = len(trs)
+            logging.info(f"{str(now)}")
+            driver.refresh()
+            trs = driver.find_elements_by_xpath(f"//table[@id='{PACKAGES_TABLE_ID}']/tbody/tr")
+            temp = len(trs)
 
-                if temp == 1:
-                    if "rgNoRecords" in trs[0].get_attribute("class"):
-                        logging.info(f"rgNoRecords found; 0 packages")
-                        temp = 0
+            if temp == 1:
+                if "rgNoRecords" in trs[0].get_attribute("class"):
+                    logging.info(f"rgNoRecords found; 0 packages")
+                    temp = 0
 
-                logging.info(f"{str(temp)} package(s)")
+            logging.info(f"{str(temp)} package(s)")
 
-                if packages != temp:
-                    packages = temp
-                    logging.info(f"{packages} package(s) for pickup.")
-                    publish_mqtt(client, {"packages": packages}, cfg)
+            if packages != temp:
+                packages = temp
+                logging.info(f"{packages} package(s) for pickup.")
+                publish_mqtt(client, {"packages": packages}, cfg)
 
             time.sleep(cfg["refresh_interval"])
 
