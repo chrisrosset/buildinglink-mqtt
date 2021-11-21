@@ -18,6 +18,7 @@ import config
 BASE_URL = "https://www.buildinglink.com/"
 PACKAGES_PAGE = "V2/Tenant/Deliveries/Deliveries.aspx"
 PACKAGES_TABLE_ID = "ctl00_ContentPlaceHolder1_GridDeliveries_ctl00"
+PACKAGES_XPATH = f"//table[@id='{PACKAGES_TABLE_ID}']/tbody/tr"
 
 def load_page(driver, page, cfg):
     try:
@@ -56,6 +57,19 @@ def on_connect(client, userdata, flags, rc, cfg):
 def on_disconnect(client, userdata, rc):
     logging.info("Disconnected from the MQTT broker. rc=" + str(rc))
 
+def get_package_count(trs):
+    count = len(trs)
+
+    if count == 0:
+        logging.warn(f"No package rows found at all")
+        count = None
+    elif count == 1:
+        if "rgNoRecords" in trs[0].get_attribute("class"):
+            logging.debug(f"rgNoRecords found; 0 packages")
+            count = 0
+
+    return count
+
 def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -80,24 +94,20 @@ def main():
         packages = -1
 
         while True:
-            now = datetime.datetime.now()
-
-            logging.info(f"{str(now)}")
+            logging.info(f"{str(datetime.datetime.now())}")
             driver.refresh()
-            trs = driver.find_elements_by_xpath(f"//table[@id='{PACKAGES_TABLE_ID}']/tbody/tr")
-            temp = len(trs)
 
-            if temp == 1:
-                if "rgNoRecords" in trs[0].get_attribute("class"):
-                    logging.info(f"rgNoRecords found; 0 packages")
-                    temp = 0
+            table = driver.find_element_by_id(PACKAGES_TABLE_ID) # implicit wait
 
-            logging.info(f"{str(temp)} package(s)")
+            pkg_count = get_package_count(driver.find_elements_by_xpath(PACKAGES_XPATH))
 
-            if packages != temp:
-                packages = temp
-                logging.info(f"{packages} package(s) for pickup.")
-                publish_mqtt(client, {"packages": packages}, cfg)
+            if pkg_count is not None:
+                logging.info(f"{str(pkg_count)} package(s)")
+
+                if packages != pkg_count:
+                    packages = pkg_count
+                    logging.info(f"Publishing: {packages} package(s) for pickup.")
+                    publish_mqtt(client, {"packages": packages}, cfg)
 
             time.sleep(cfg["refresh_interval"])
 
