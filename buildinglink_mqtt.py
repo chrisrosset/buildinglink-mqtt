@@ -1,39 +1,18 @@
 #!/usr/bin/env python3
 
-import datetime
 import json
 import logging
-import pickle
+import lxml.html
+import requests
 import time
 
 import paho.mqtt.client as mqtt
 
-from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.firefox.options import Options
-
 import config
 
-BASE_URL = "https://www.buildinglink.com/"
-PACKAGES_PAGE = "V2/Tenant/Deliveries/Deliveries.aspx"
 PACKAGES_TABLE_ID = "ctl00_ContentPlaceHolder1_GridDeliveries_ctl00"
 PACKAGES_XPATH = f"//table[@id='{PACKAGES_TABLE_ID}']/tbody/tr"
 
-def load_page(driver, page, cfg):
-    try:
-        driver.get(page)
-        for e in [("UserName", cfg['username']), ("Password", cfg['password'])]:
-            box = driver.find_element_by_id(e[0])
-            box.clear()
-            box.send_keys(e[1])
-
-        logging.info("Logging in.")
-        button = driver.find_element_by_id("LoginButton")
-        button.click()
-    except NoSuchElementException:
-        logging.info("Already logged in.")
-        return
 
 def mqtt_base_topic(cfg):
     return f"{cfg['discovery_prefix']}/sensor/buildinglink"
@@ -57,18 +36,43 @@ def on_connect(client, userdata, flags, rc, cfg):
 def on_disconnect(client, userdata, rc):
     logging.info("Disconnected from the MQTT broker. rc=" + str(rc))
 
-def get_package_count(trs):
-    count = len(trs)
 
-    if count == 0:
+def get_hidden_inputs(text):
+    html = lxml.html.fromstring(text)
+    hidden_inputs = html.xpath(r'//form//input[@type="hidden"]')
+    form = {x.attrib["name"]: x.attrib["value"] for x in hidden_inputs}
+    return form
+
+def load_page(s, cfg):
+    r = s.get( "https://www.buildinglink.com/v2/global/login/login.aspx")
+
+    # Find the redirect URL located in the <script>.
+    content = r.content
+    url = content[content.find(b'https://auth'):content.rfind(b'";')]
+
+    r = s.get(url)
+
+    form = get_hidden_inputs(r.text)
+    form['Username'] = cfg["username"]
+    form['Password'] = cfg["password"]
+    r = s.post(r.url, data=form)
+
+    form = get_hidden_inputs(r.text)
+    r = s.post("https://www.buildinglink.com/v2/oidc-callback", data=form)
+
+
+def get_package_count(page):
+    trs = lxml.html.fromstring(page.text).xpath(PACKAGES_XPATH)
+    rows = len(trs)
+
+    if rows == 0:
         logging.warn(f"No package rows found at all")
-        count = None
-    elif count == 1:
-        if "rgNoRecords" in trs[0].get_attribute("class"):
-            logging.debug(f"rgNoRecords found; 0 packages")
-            count = 0
-
-    return count
+        return None
+    elif rows == 1 and "rgNoRecords" in trs[0].get("class"):
+        logging.debug(f"rgNoRecords found; 0 packages")
+        return 0
+    else:
+        return rows
 
 def main():
     logging.basicConfig(
@@ -84,25 +88,14 @@ def main():
     client.connect(cfg["broker"]["host"])
     client.loop_start()
 
-    options = Options()
-    options.headless = True
+    with requests.Session() as session:
+        load_page(session, cfg)
 
-    with webdriver.Firefox(options=options) as driver:
-        driver.implicitly_wait(10)
-        driver.get(BASE_URL)
-
-        url = f"{BASE_URL}/{PACKAGES_PAGE}"
-        load_page(driver, url, cfg)
-
-        packages = -1
+        packages = None
 
         while True:
-            logging.info(f"{str(datetime.datetime.now())}")
-            driver.refresh()
-
-            table = driver.find_element_by_id(PACKAGES_TABLE_ID) # implicit wait
-
-            pkg_count = get_package_count(driver.find_elements_by_xpath(PACKAGES_XPATH))
+            page = session.get("https://www.buildinglink.com/V2/Tenant/Deliveries/Deliveries.aspx")
+            pkg_count = get_package_count(page)
 
             if pkg_count is not None:
                 logging.info(f"{str(pkg_count)} package(s)")
