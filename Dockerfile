@@ -1,13 +1,15 @@
-FROM selenium/standalone-firefox
+FROM python:3.9-bullseye
 ENTRYPOINT []
 
-RUN sudo apt-get update && \
-    sudo apt-get -qy install \
+RUN apt-get update && \
+    apt-get -qy install \
+    python3-lxml \
     python3-paho-mqtt \
-    python3-selenium
+    python3-requests
 
-RUN sudo mkdir /app && sudo chmod 777 /app
+RUN mkdir /app && chmod 777 /app
 COPY buildinglink_mqtt.py /app
 WORKDIR "/app"
 
+ENV PYTHONPATH="/usr/lib/python3/dist-packages"
 CMD ["python3", "buildinglink_mqtt.py"]
